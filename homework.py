@@ -49,10 +49,10 @@ class TokenError(Exception):
 
 def check_tokens():
     """Проверяет доступность всех необходимых токенов."""
-    for token_name, token_value in tokens.items():
-        if not token_value:
+    for token, value in tokens.items():
+        if not value:
             logger.critical(
-                f'Отсутствует обязательная переменная окружения: {token_name}'
+                f'Отсутствуют обязательные токены: {token}'
             )
             return False
     return True
@@ -148,28 +148,6 @@ def parse_status(homework):
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
-def main():
-    """Основная логика работы бота."""
-    if not check_tokens():
-        raise TokenError()
-
-    bot = TeleBot(TELEGRAM_TOKEN)
-    current_timestamp = 0
-    previous_error = None
-    last_homework_status = None
-
-    logger.info('Бот запущен и начал работу')
-
-    while True:
-        try:
-            process_homeworks(bot, current_timestamp, last_homework_status)
-            previous_error = handle_recovery(bot, previous_error)
-        except Exception as error:
-            previous_error = handle_error(bot, error, previous_error)
-
-        time.sleep(RETRY_PERIOD)
-
-
 def process_homeworks(bot, current_timestamp, last_homework_status):
     """Обрабатывает домашние работы из ответа API."""
     response = get_api_answer(current_timestamp)
@@ -212,6 +190,27 @@ def handle_error(bot, error, previous_error):
 
     return previous_error
 
+
+def main():
+    """Основная логика работы бота."""
+    if not check_tokens():
+        raise TokenError()
+
+    bot = TeleBot(TELEGRAM_TOKEN)
+    current_timestamp = 0
+    previous_error = None
+    last_homework_status = None
+
+    logger.info('Бот запущен и начал работу')
+
+    while True:
+        try:
+            process_homeworks(bot, current_timestamp, last_homework_status)
+            previous_error = handle_recovery(bot, previous_error)
+        except Exception as error:
+            previous_error = handle_error(bot, error, previous_error)
+
+        time.sleep(RETRY_PERIOD)
 
 if __name__ == '__main__':
     main()
