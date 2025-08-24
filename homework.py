@@ -197,7 +197,7 @@ def main():
         raise TokenError()
 
     bot = TeleBot(TELEGRAM_TOKEN)
-    current_timestamp = 0
+    current_timestamp = int(time.time())
     previous_error = None
     last_homework_status = None
 
