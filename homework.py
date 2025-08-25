@@ -21,14 +21,15 @@ HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO,
-    handlers=[
-        logging.FileHandler('main.log', encoding='utf-8'),
-        logging.StreamHandler(sys.stdout)
-    ]
+formatter = logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
+
+file_handler = logging.FileHandler('main.log', encoding='utf-8')
+file_handler.setFormatter(formatter)
+
+stream_handler = logging.StreamHandler(sys.stdout)
+stream_handler.setFormatter(formatter)
 
 HOMEWORK_VERDICTS = {
     'approved': 'Работа проверена: ревьюеру всё понравилось. Ура!',
@@ -43,18 +44,18 @@ class TokenError(Exception):
 
 def check_tokens():
     """Проверяет доступность всех необходимых токенов."""
-    token = {
+    tokens = {
         'PRACTICUM_TOKEN': PRACTICUM_TOKEN,
         'TELEGRAM_TOKEN': TELEGRAM_TOKEN,
         'TELEGRAM_CHAT_ID': TELEGRAM_CHAT_ID
     }
 
-    for token, value in token.items():
-        if not value:
-            logger.critical(
-                f'Отсутствуют обязательные токены: {token}'
-            )
-            return False
+    missing_tokens = [token for token, value in tokens.items() if not value]
+    if missing_tokens:
+        logger.critical(
+            f'Отсутствуют обязательные токены: {", ".join(missing_tokens)}'
+        )
+        return False
     return True
 
 
@@ -65,7 +66,13 @@ def send_message(bot, message):
         logger.debug(f'Бот отправил сообщение "{message}"')
         return True
     except Exception as error:
-        logger.error(f'Сбой при отправке сообщения в Telegram: {error}')
+        logger.error(f'Ошибка Telegram API при отправке сообщения: {error}')
+        return False
+
+    except requests.RequestException as error:
+        logger.error(
+            f'Сетевая ошибка при отправке сообщения в Telegram: {error}'
+        )
         return False
 
 
@@ -73,50 +80,58 @@ def get_api_answer(current_timestamp):
     """Делает запрос к API."""
     params = {'from_date': current_timestamp}
 
+    logger.info(
+        f'Отправка запроса к API: {ENDPOINT}, '
+        f'headers={HEADERS}, params={params}'
+    )
+
     try:
-        logger.info(
-            f'Отправка запроса к API: {ENDPOINT} с параметрами {params}'
-        )
         response = requests.get(ENDPOINT, headers=HEADERS, params=params)
+    except requests.RequestException as error:
+        error_msg = (
+            f'Ошибка при запросе к API {ENDPOINT}, '
+            f'headers={HEADERS}, params={params}. Ошибка: {error}'
+        )
+        raise RuntimeError(error_msg)
 
-        if response.status_code != HTTPStatus.OK:
-            error_msg = (
-                f'Эндпоинт {ENDPOINT} недоступен. '
-                f'Код ответа API: {response.status_code}'
-            )
-            logger.error(error_msg)
-            raise Exception(error_msg)
+    if response.status_code != HTTPStatus.OK:
+        error_msg = (
+            f'Эндпоинт {ENDPOINT} вернул код {response.status_code}. '
+            f'headers={HEADERS}, params={params}'
+        )
+        raise ConnectionError(error_msg)
 
+    try:
         return response.json()
-
-    except requests.exceptions.RequestException as error:
-        error_msg = f'Эндпоинт {ENDPOINT} недоступен. Ошибка: {error}'
-        logger.error(error_msg)
-        raise Exception(error_msg)
     except ValueError as error:
-        error_msg = f'Ошибка парсинга JSON ответа: {error}'
-        logger.error(error_msg)
-        raise Exception(error_msg)
+        error_msg = (
+            f'Ошибка парсинга JSON от {ENDPOINT}, '
+            f'headers={HEADERS}, params={params}. Ошибка: {error}'
+        )
+        raise ConnectionError(error_msg)
 
 
 def check_response(response):
     """Проверяет ответ API на корректность."""
     if not isinstance(response, dict):
-        error_msg = 'Ответ API должен быть словарем'
-        logger.error(error_msg)
+        error_msg = (
+            f'Ответ API должен быть словарем, получен. '
+            f'Получен {type(response).__name__}'
+        )
         raise TypeError(error_msg)
 
     required_keys = ['homeworks', 'current_date']
     for key in required_keys:
         if key not in response:
-            error_msg = f'В ответе API отсутствует ключ: {key!r}'
-            logger.error(error_msg)
+            error_msg = f'В ответе API отсутствует ключ: {key}'
             raise KeyError(error_msg)
 
     homeworks = response['homeworks']
     if not isinstance(homeworks, list):
-        error_msg = 'Ключ "homeworks" должен содержать список'
-        logger.error(error_msg)
+        error_msg = (
+            f'Ключ "homeworks" должен содержать список. '
+            f'Получен {type(homeworks).__name__}'
+        )
         raise TypeError(error_msg)
 
     return homeworks
@@ -125,15 +140,16 @@ def check_response(response):
 def parse_status(homework):
     """Извлекает статус работы."""
     if not isinstance(homework, dict):
-        error_msg = 'Домашняя работа должна быть словарем'
-        logger.error(error_msg)
+        error_msg = (
+            f'Домашняя работа должна быть словарем. '
+            f'Получен {type(homework).__name__}'
+        )
         raise TypeError(error_msg)
 
     required_fields = ['homework_name', 'status']
     for field in required_fields:
         if field not in homework:
-            error_msg = f'В домашней работе отсутствует поле: {field!r}'
-            logger.error(error_msg)
+            error_msg = f'В домашней работе отсутствует поле: {field}'
             raise KeyError(error_msg)
 
     homework_name = homework['homework_name']
@@ -141,7 +157,6 @@ def parse_status(homework):
 
     if status not in HOMEWORK_VERDICTS:
         error_msg = f'Неожиданный статус домашней работы: {status}'
-        logger.error(error_msg)
         raise ValueError(error_msg)
 
     verdict = HOMEWORK_VERDICTS[status]
