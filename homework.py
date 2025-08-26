@@ -7,6 +7,7 @@ from http import HTTPStatus
 
 from dotenv import load_dotenv
 from telebot import TeleBot
+from telebot.apihelper import ApiException
 
 load_dotenv()
 
@@ -65,7 +66,7 @@ def send_message(bot, message):
         bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
         logger.debug(f'Бот отправил сообщение "{message}"')
         return True
-    except Exception as error:
+    except ApiException as error:
         logger.error(f'Ошибка Telegram API при отправке сообщения: {error}')
         return False
 
